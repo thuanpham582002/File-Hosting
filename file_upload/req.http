@@ -1,0 +1,16 @@
+POST http://localhost:8080/upload
+Content-Type: application/json
+
+{}
+
+###
+### Authorization by token, part 1. Retrieve and save token.
+POST http://admin:secret@localhost:8080/login
+Content-Type: application/json
+
+> {% client.global.set("auth_token", response.body.token); %}
+
+### Authorization by token, part 2. Use token to authorize.
+GET http://localhost:8080/resource
+Authorization: Bearer {{auth_token}}
+
