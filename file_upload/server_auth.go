@@ -33,7 +33,8 @@ func engine() *gin.Engine {
 	r.LoadHTMLGlob("templates/*")
 	// Setup the cookie store for session management
 	r.Use(sessions.Sessions("mysession", cookie.NewStore(secret)))
-	// Login and logout routes
+
+	// public api
 	r.POST("/login", login)
 	r.GET("/login", loginForm)
 	r.GET("/logout", logout)
@@ -132,8 +133,6 @@ func rename(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Successfully logged out"})
 }
 
-// me is the handler that will return the user information stored in the
-// session.
 func me(c *gin.Context) {
 	session := sessions.Default(c)
 	user := session.Get(userkey)
@@ -158,10 +157,10 @@ func dashBoard(c *gin.Context) {
 }
 
 type FileMetaData struct {
-	FileName   string
-	FileSize   int64
-	FileType   string
-	UploadTime int64
+	FileName   string `json:"file_name"`
+	FileSize   int64  `json:"file_size"`
+	FileType   string `json:"file_type"`
+	UploadTime int64  `json:"upload_time"`
 }
 
 func readAllFilesInDir(dirPath string) ([]FileMetaData, error) {

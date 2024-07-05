@@ -12,10 +12,23 @@
     <div id="loadingSpinner" class="spinner-border" role="status" style="display:none;">
         <span class="visually-hidden">Loading...</span>
     </div>
-    <div class="mb-4">
-        <button id="uploadBtn" class="btn btn-primary">Upload File</button>
-        <input type="file" id="fileInput" style="display:none;">
+    <div id="dropArea">
+        <form>
+            <p>
+                Drop files here<br><br><span class="bold">or</span>
+            </p>
+            <input name="file" multiple type="file" accept="*">
+            <span class="bold">and</span>
+            <button type="submit" disabled>Upload</button>
+        </form>`
     </div>
+
+    <progress value="0" max="100"></progress>
+
+    <p>
+        <strong>Uploading status:</strong>
+        <span id="statusMessage">🤷‍♂ Nothing's uploaded</span>
+    </p>
     <div id="fileList" class="table-responsive">
         <table class="table table-bordered table-hover">
             <thead>
@@ -35,47 +48,178 @@
 </div>
 
 <script>
+    const form = document.querySelector('form');
+    const fileInput = document.querySelector('input');
+    const submitButton = document.querySelector('button');
+    const statusMessage = document.getElementById('statusMessage');
+    const progressBar = document.querySelector('progress');
+    const dropArea = document.getElementById('dropArea');
+
+    form.addEventListener('submit', handleSubmit);
+    fileInput.addEventListener('change', handleInputChange);
+    dropArea.addEventListener('drop', handleDrop);
+
+    initDropAreaHighlightOnDrag();
+
+    function handleSubmit(event) {
+        event.preventDefault();
+
+        showPendingState();
+
+        uploadFiles(fileInput.files);
+    }
+
+    function handleDrop(event) {
+        const fileList = event.dataTransfer.files;
+
+        resetFormState();
+
+        try {
+            assertFilesValid(fileList);
+        } catch (err) {
+            updateStatusMessage(err.message);
+            return;
+        }
+
+        showPendingState();
+
+        uploadFiles(fileList);
+    }
+
+    function handleInputChange(event) {
+        resetFormState();
+
+        try {
+            assertFilesValid(event.target.files);
+        } catch (err) {
+            console.log(err);
+            updateStatusMessage(err.message);
+            return;
+        }
+        submitButton.disabled = false;
+    }
+
+    function uploadFiles(files) {
+        const url = 'http://localhost:8080/private/upload'
+        const method = 'post';
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', event => {
+          updateStatusMessage(`⏳ Uploaded ${event.loaded} bytes of ${event.total}`);
+          updateProgressBar(event.loaded / event.total);
+        });
+
+        xhr.addEventListener('loadend', () => {
+          if (xhr.status === 200) {
+            updateStatusMessage('✅ Success');
+            window.location.reload();
+          } else {
+            updateStatusMessage('❌ Error');
+          }
+
+          updateProgressBar(0);
+        });
+
+        const data = new FormData();
+
+        for (const file of files) {
+          data.append('file', file);
+        }
+
+        xhr.open(method, url);
+        xhr.send(data);
+    }
+
+    function assertFilesValid(fileList) {
+        // const allowedTypes = ['image/webp', 'image/jpeg', 'image/png'];
+        // const sizeLimit = 1024 * 1024; // 1 megabyte
+        //
+        // for (const file of fileList) {
+        //   const { name: fileName, size: fileSize } = file;
+        //
+        //   if (!allowedTypes.includes(file.type)) {
+        //     throw new Error(`❌ File "${fileName}" could not be uploaded. Only images with the following types are allowed: WEBP, JPEG, PNG.`);
+        //   }
+        //
+        //   if (fileSize > sizeLimit) {
+        //     throw new Error(`❌ File "${fileName}" could not be uploaded. Only images up to 1 MB are allowed.`);
+        //   }
+        // }
+    }
+
+    function updateStatusMessage(text) {
+        statusMessage.textContent = text;
+    }
+
+    function updateProgressBar(value) {
+        const percent = value * 100;
+        progressBar.value = Math.round(percent);
+    }
+
+    function showPendingState() {
+        submitButton.disabled = true;
+        updateStatusMessage('⏳ Pending...')
+    }
+
+    function resetFormState() {
+        submitButton.disabled = true;
+        updateStatusMessage(`🤷‍♂ Nothing's uploaded`)
+    }
+
+    function initDropAreaHighlightOnDrag() {
+        let dragEventCounter = 0;
+
+        dropArea.addEventListener('dragenter', event => {
+            event.preventDefault();
+
+            if (dragEventCounter === 0) {
+                dropArea.classList.add('highlight');
+            }
+
+            dragEventCounter += 1;
+        });
+
+        dropArea.addEventListener('dragover', event => {
+            event.preventDefault();
+
+            // in case of non triggered dragenter!
+            if (dragEventCounter === 0) {
+                dragEventCounter = 1;
+            }
+        });
+
+        dropArea.addEventListener('dragleave', event => {
+            event.preventDefault();
+
+            dragEventCounter -= 1;
+
+            if (dragEventCounter <= 0) {
+                dragEventCounter = 0;
+                dropArea.classList.remove('highlight');
+            }
+        });
+
+        dropArea.addEventListener('drop', event => {
+            event.preventDefault();
+
+            dragEventCounter = 0;
+            dropArea.classList.remove('highlight');
+        });
+    }
+
     // Assign the Go template variable to a JavaScript variable
     const files = JSON.parse(`{{ .files }}`);
 
     document.addEventListener("DOMContentLoaded", function() {
         const fileList = document.getElementById("fileList").getElementsByTagName("tbody")[0];
 
-        // Upload button and file input logic
-        const uploadBtn = document.getElementById("uploadBtn");
-        const fileInput = document.getElementById("fileInput");
-
-        uploadBtn.addEventListener("click", () => {
-            fileInput.click();
-        });
-
-        fileInput.addEventListener("change", (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                document.getElementById("loadingSpinner").style.display = "block";
-                fetch("/upload", {
-                    method: "POST",
-                    body: file
-                }).then(response => {
-                    if (response.ok) {
-                        console.log("File uploaded successfully");
-                    } else {
-                        console.error("File upload failed");
-                    }
-                    // hide loading spinner
-                }).finally(() => {
-                    document.getElementById("loadingSpinner").style.display = "none";
-                });
-                console.log("Uploading file:", file);
-            }
-        });
-
         files.forEach((file, index) => {
             const row = fileList.insertRow();
-            row.insertCell(0).innerText = file.FileName;
-            row.insertCell(1).innerText = (file.FileSize / 1024).toFixed(2) + ' KB'; // Convert to KB
-            row.insertCell(2).innerText = file.FileType;
-            row.insertCell(3).innerText = new Date(file.UploadTime * 1000).toLocaleString(); // Convert timestamp to date
+            row.insertCell(0).innerText = file.file_name;
+            row.insertCell(1).innerText = (file.file_size / 1024).toFixed(2) + ' KB'; // Convert to KB
+            row.insertCell(2).innerText = file.file_type;
+            row.insertCell(3).innerText = new Date(file.upload_time * 1000).toLocaleString(); // Convert timestamp to date
 
             const actionsCell = row.insertCell(4);
             const renameBtn = document.createElement("button");
@@ -96,8 +240,19 @@
     function renameFile(index) {
         const newFileName = prompt("Enter new file name:");
         if (newFileName) {
-            // Logic to rename the file on the server
-            console.log("Renaming file at index", index, "to", newFileName);
+            if (newFileName === "") {
+                alert("File name cannot be empty");
+                return;
+            }
+            if (newFileName === files[index].file_name) {
+                alert("New file name is the same as the current file name");
+                return;
+            }
+            const url = 'http://localhost:8080/private/rename/' + files[index].file_name;
+            const method = 'post';
+
+            const xhr = new XMLHttpRequest();
+
         }
     }
 
