@@ -1,64 +1,160 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-var tokens []string
-
 var folderPath = "./files"
 
+const userkey = "user"
+
+var secret = []byte("secret")
+
 func main() {
-	r := gin.Default()
-	r.POST("/login", gin.BasicAuth(gin.Accounts{
-		"admin": "secret",
-	}), func(c *gin.Context) {
-		token, _ := randomHex(20)
-		tokens = append(tokens, token)
+	r := engine()
+	r.Use(gin.Logger())
+	if err := engine().Run(":8080"); err != nil {
+		log.Fatal("Unable to start:", err)
+		return
+	}
+}
 
-		c.JSON(http.StatusOK, gin.H{
-			"token": token,
-		})
-	})
+func engine() *gin.Engine {
+	r := gin.New()
+	r.LoadHTMLGlob("templates/*")
+	// Setup the cookie store for session management
+	r.Use(sessions.Sessions("mysession", cookie.NewStore(secret)))
+	// Login and logout routes
+	r.POST("/login", login)
+	r.GET("/login", loginForm)
+	r.GET("/logout", logout)
 
-	r.GET("/resource", func(c *gin.Context) {
-		bearerToken := c.Request.Header.Get("Authorization")
-		splitToken := strings.Split(bearerToken, " ")
-		if len(splitToken) < 2 {
-			// handle the error, for example:
-			fmt.Println("Invalid bearer token")
-			return
-		}
-		reqToken := splitToken[1]
-		for _, token := range tokens {
-			if token == reqToken {
-				files, err := readAllFilesInDir(folderPath)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"message": "internal server error",
-					})
-					return
-				}
+	// Private group, require authentication to access
+	private := r.Group("/private")
+	private.Use(AuthRequired)
+	{
+		private.GET("/dashboard", dashBoard)
+		private.GET("/rename", rename)
+		private.POST("/upload", uploadFile)
+		private.GET("/me", me)
+		private.GET("/status", status)
+	}
+	return r
+}
 
-				c.JSON(http.StatusOK, gin.H{
-					"files": files,
-				})
-				return
-			}
-		}
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"message": "unauthorized",
-		})
-	})
+func uploadFile(context *gin.Context) {
+	file, err := context.FormFile("file")
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	filePath := filepath.Join(folderPath, file.Filename)
+	if err := context.SaveUploadedFile(file, filePath); err != nil {
+		context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	context.JSON(http.StatusOK, gin.H{"message": "File uploaded successfully"})
+}
 
-	r.Run() // Listen and serve on 0.0.0.0:8080 (for Windows "localhost:8080")
+func loginForm(c *gin.Context) {
+	c.HTML(http.StatusOK, "login_page.html", gin.H{})
+}
+
+// AuthRequired is a simple middleware to check the session.
+func AuthRequired(c *gin.Context) {
+	session := sessions.Default(c)
+	user := session.Get(userkey)
+	if user == nil {
+		// Abort the request with the appropriate error code
+		c.Redirect(http.StatusFound, "/login")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	// Continue down the chain to handler etc
+	c.Next()
+}
+
+// login is a handler that parses a form and checks for specific data.
+func login(c *gin.Context) {
+	session := sessions.Default(c)
+	username := c.PostForm("username")
+	password := c.PostForm("password")
+
+	// Validate form input
+	if strings.Trim(username, " ") == "" || strings.Trim(password, " ") == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Parameters can't be empty"})
+		return
+	}
+
+	// Check for username and password match, usually from a database
+	if username != "admin" || password != "123456aA@" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed"})
+		return
+	}
+
+	// Save the username in the session
+	session.Set(userkey, username) // In real world usage you'd set this to the users ID
+	if err := session.Save(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+		return
+	}
+	// navigate to the dashboard
+	c.Redirect(http.StatusFound, "/private/dashboard")
+}
+
+// logout is the handler called for the user to log out.
+func logout(c *gin.Context) {
+	session := sessions.Default(c)
+	user := session.Get(userkey)
+	if user == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session token"})
+		return
+	}
+	session.Delete(userkey)
+	if err := session.Save(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Successfully logged out"})
+}
+
+func rename(c *gin.Context) {
+	fmt.Println(c.Request.Body)
+	c.JSON(http.StatusOK, gin.H{"message": "Successfully logged out"})
+}
+
+// me is the handler that will return the user information stored in the
+// session.
+func me(c *gin.Context) {
+	session := sessions.Default(c)
+	user := session.Get(userkey)
+	c.JSON(http.StatusOK, gin.H{"user": user})
+}
+
+// status is the handler that will tell the user whether it is logged in or not.
+func status(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "You are logged in"})
+}
+
+func dashBoard(c *gin.Context) {
+	files, err := readAllFilesInDir(folderPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// convert files to json
+	filesJson, err := json.Marshal(files)
+	fmt.Println(string(filesJson))
+	c.HTML(http.StatusOK, "dash_board.html", gin.H{"files": string(filesJson)})
 }
 
 type FileMetaData struct {
@@ -68,12 +164,9 @@ type FileMetaData struct {
 	UploadTime int64
 }
 
-// Function to read all files in a directory
 func readAllFilesInDir(dirPath string) ([]FileMetaData, error) {
-	// Walk through the directoryx
 	var files []FileMetaData
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		// Check for errors
 		if err != nil {
 			return err
 		}
@@ -99,16 +192,7 @@ func readAllFilesInDir(dirPath string) ([]FileMetaData, error) {
 				UploadTime: info.ModTime().Unix(),
 			})
 		}
-
 		return nil
 	})
 	return files, err
-}
-
-func randomHex(n int) (string, error) {
-	bytes := make([]byte, n)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
 }

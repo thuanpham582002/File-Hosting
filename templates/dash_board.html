@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-5">
+    <h1 class="mb-4">File Dashboard</h1>
+    <div id="loadingSpinner" class="spinner-border" role="status" style="display:none;">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <div class="mb-4">
+        <button id="uploadBtn" class="btn btn-primary">Upload File</button>
+        <input type="file" id="fileInput" style="display:none;">
+    </div>
+    <div id="fileList" class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead>
+            <tr>
+                <th>File Name</th>
+                <th>File Size</th>
+                <th>File Type</th>
+                <th>Upload Time</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- Rows will be inserted here by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Assign the Go template variable to a JavaScript variable
+    const files = JSON.parse(`{{ .files }}`);
+
+    document.addEventListener("DOMContentLoaded", function() {
+        const fileList = document.getElementById("fileList").getElementsByTagName("tbody")[0];
+
+        // Upload button and file input logic
+        const uploadBtn = document.getElementById("uploadBtn");
+        const fileInput = document.getElementById("fileInput");
+
+        uploadBtn.addEventListener("click", () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener("change", (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById("loadingSpinner").style.display = "block";
+                fetch("/upload", {
+                    method: "POST",
+                    body: file
+                }).then(response => {
+                    if (response.ok) {
+                        console.log("File uploaded successfully");
+                    } else {
+                        console.error("File upload failed");
+                    }
+                    // hide loading spinner
+                }).finally(() => {
+                    document.getElementById("loadingSpinner").style.display = "none";
+                });
+                console.log("Uploading file:", file);
+            }
+        });
+
+        files.forEach((file, index) => {
+            const row = fileList.insertRow();
+            row.insertCell(0).innerText = file.FileName;
+            row.insertCell(1).innerText = (file.FileSize / 1024).toFixed(2) + ' KB'; // Convert to KB
+            row.insertCell(2).innerText = file.FileType;
+            row.insertCell(3).innerText = new Date(file.UploadTime * 1000).toLocaleString(); // Convert timestamp to date
+
+            const actionsCell = row.insertCell(4);
+            const renameBtn = document.createElement("button");
+            renameBtn.className = "btn btn-warning btn-sm me-2";
+            renameBtn.innerText = "Rename";
+            renameBtn.onclick = () => renameFile(index);
+
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "btn btn-danger btn-sm";
+            deleteBtn.innerText = "Delete";
+            deleteBtn.onclick = () => deleteFile(index);
+
+            actionsCell.appendChild(renameBtn);
+            actionsCell.appendChild(deleteBtn);
+        });
+    });
+
+    function renameFile(index) {
+        const newFileName = prompt("Enter new file name:");
+        if (newFileName) {
+            // Logic to rename the file on the server
+            console.log("Renaming file at index", index, "to", newFileName);
+        }
+    }
+
+    function deleteFile(index) {
+        if (confirm("Are you sure you want to delete this file?")) {
+            // Logic to delete the file on the server
+            console.log("Deleting file at index", index);
+        }
+    }
+</script>
+</body>
+</html>
