@@ -1,4 +1,4 @@
-module awesomeProject
+module file_hosting_upload
 
 go 1.23rc1
 

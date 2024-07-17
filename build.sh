@@ -1,0 +1,1 @@
+docker build . -t noroom113/file_host_upload:v2
